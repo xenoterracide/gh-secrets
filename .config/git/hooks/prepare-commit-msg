@@ -32,6 +32,7 @@ set -eu
 # Tuning:
 # - Set COPILOT_COMMITMSG_MAX_BODY_LINES (default: 12) to cap message verbosity.
 # - Set COPILOT_COMMITMSG_INCLUDE_CONVENTION_CONFIG=0 to avoid including git-conventional-commits.yaml in the prompt.
+# - Set COPILOT_COMMITMSG_REQUIRE_CONVENTION_CONFIG=1 to require git-conventional-commits.yaml (errors if missing).
 
 log() {
   [ -n "${COPILOT_COMMITMSG_DEBUG:-}" ] && printf '%s\n' "$*" 1>&2
@@ -88,13 +89,29 @@ STAGED_DIFF=$(git diff --cached | head -n 600)
 
 MAX_BODY_LINES="${COPILOT_COMMITMSG_MAX_BODY_LINES:-12}"
 INCLUDE_CONVENTION_CONFIG="${COPILOT_COMMITMSG_INCLUDE_CONVENTION_CONFIG:-1}"
+REQUIRE_CONVENTION_CONFIG="${COPILOT_COMMITMSG_REQUIRE_CONVENTION_CONFIG:-0}"
+
+# Source of truth for allowed types is git-conventional-commits.yaml.
+# We don't parse YAML here; we just:
+# - include the file contents in the prompt when present
+# - use a canonical fallback list when the file is missing (e.g., if someone copies the hook)
+ALLOWED_TYPES="ci feat fix perf refactor style test build ops docs chore merge revert"
 
 CONVENTION_CONFIG_SNIPPET=""
-if [ "$INCLUDE_CONVENTION_CONFIG" != "0" ] && [ -f "git-conventional-commits.yaml" ]; then
-  # Keep bounded: include only the first ~200 lines / 8KB.
-  # (This file is small, but we still cap to keep prompts predictable.)
-  CONVENTION_CONFIG_SNIPPET=$(sed -n '1,200p' git-conventional-commits.yaml | head -c 8192)
+if [ -f "git-conventional-commits.yaml" ]; then
+  if [ "$INCLUDE_CONVENTION_CONFIG" != "0" ]; then
+    # Keep bounded: include only the first ~200 lines / 8KB.
+    CONVENTION_CONFIG_SNIPPET=$(sed -n '1,200p' git-conventional-commits.yaml | head -c 8192)
+  fi
+else
+  if [ "$REQUIRE_CONVENTION_CONFIG" = "1" ]; then
+    printf '%s\n' "prepare-commit-msg: ERROR: git-conventional-commits.yaml is required but missing" 1>&2
+    exit 1
+  fi
 fi
+
+# Build regex alternatives from allowed types (space-separated -> a|b|c)
+ALLOWED_TYPES_ALT=$(printf '%s' "$ALLOWED_TYPES" | tr ' ' '|')
 
 PROMPT="You are writing a git commit message for a human developer.
 
@@ -115,23 +132,16 @@ Rules:
   - Wrap body lines to <= 72 characters.
   - Do not repeat the subject.
 
-Available types: feat, fix, chore, docs, refactor, test, build, ci, style, perf
+IMPORTANT: Use ONLY these commit types: $ALLOWED_TYPES
+If unsure, choose 'chore'.
 "
 
 if [ -n "$CONVENTION_CONFIG_SNIPPET" ]; then
   PROMPT="$PROMPT
-IMPORTANT: You MUST use ONLY commit types listed under convention.commitTypes in the config below.
-If unsure, choose 'chore'.
-
 Project commit convention (git-conventional-commits.yaml):
 ---
 $CONVENTION_CONFIG_SNIPPET
 ---
-"
-else
-  PROMPT="$PROMPT
-IMPORTANT: Use ONLY these commit types: ci, feat, fix, perf, refactor, style, test, build, ops, docs, chore, merge, revert
-If unsure, choose 'chore'.
 "
 fi
 
@@ -206,8 +216,7 @@ SUBJECT_CANDIDATE=$(
   printf '%s\n' "$COPILOT_OUT" \
     | sed -E 's/^Subject:[[:space:]]*//I' \
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
-    | awk '
-      BEGIN{ re="^(ci|feat|fix|perf|refactor|style|test|build|ops|docs|chore|merge|revert)(\\([^()]+\\))?: .+"; }
+    | awk -v re="^(${ALLOWED_TYPES_ALT})(\\([^()]+\\))?: .+" '
       {
         line=$0
         if (line ~ /^$/) next
