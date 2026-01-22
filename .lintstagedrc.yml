@@ -1,10 +1,10 @@
-# SPDX-FileCopyrightText: Copyright © 2026 Caleb Cushing
+# SPDX-FileCopyrightText: Copyright © 2024-2026 Caleb Cushing
 #
 # SPDX-License-Identifier: CC0-1.0
 
 # Software
 "*.java":
-  - "reuse annotate --license 'MIT' --copyright 'Caleb Cushing' --copyright-prefix spdx-string-symbol --merge-copyrights"
+  - "reuse annotate --license 'GPL-3.0-or-later' --copyright 'Caleb Cushing' --copyright-prefix spdx-string-symbol --merge-copyrights"
   - &prettier "prettier --cache --ignore-unknown --write"
 # Build Scripts
 "*.gradle.kts":
