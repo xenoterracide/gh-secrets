@@ -33,6 +33,8 @@ set -eu
 # - Set COPILOT_COMMITMSG_MAX_BODY_LINES (default: 12) to cap message verbosity.
 # - Set COPILOT_COMMITMSG_INCLUDE_CONVENTION_CONFIG=0 to avoid including git-conventional-commits.yaml in the prompt.
 # - Set COPILOT_COMMITMSG_REQUIRE_CONVENTION_CONFIG=1 to require git-conventional-commits.yaml (errors if missing).
+# - Set COPILOT_COMMITMSG_FAIL_ON_INVALID=0 to keep the old permissive fallback behavior.
+# - Set COPILOT_COMMITMSG_DUMP_INVALID_LINES=N (default: 20) to control how many Copilot output lines to print on failure.
 
 log() {
   [ -n "${COPILOT_COMMITMSG_DEBUG:-}" ] && printf '%s\n' "$*" 1>&2
@@ -90,6 +92,8 @@ STAGED_DIFF=$(git diff --cached | head -n 600)
 MAX_BODY_LINES="${COPILOT_COMMITMSG_MAX_BODY_LINES:-12}"
 INCLUDE_CONVENTION_CONFIG="${COPILOT_COMMITMSG_INCLUDE_CONVENTION_CONFIG:-1}"
 REQUIRE_CONVENTION_CONFIG="${COPILOT_COMMITMSG_REQUIRE_CONVENTION_CONFIG:-0}"
+FAIL_ON_INVALID="${COPILOT_COMMITMSG_FAIL_ON_INVALID:-1}"
+DUMP_INVALID_LINES="${COPILOT_COMMITMSG_DUMP_INVALID_LINES:-20}"
 
 # Source of truth for allowed types is git-conventional-commits.yaml.
 # We don't parse YAML here; we just:
@@ -212,11 +216,17 @@ COPILOT_OUT=$(printf '%s' "$COPILOT_OUT" | sed -e 's/\r$//')
 
 # Find the first line anywhere in the output that looks like a conventional-commit subject.
 # Accept common prefixes like "Subject:".
+# Note: avoid awk escape warnings by not escaping parentheses in the -v regex string.
 SUBJECT_CANDIDATE=$(
   printf '%s\n' "$COPILOT_OUT" \
     | sed -E 's/^Subject:[[:space:]]*//I' \
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
-    | awk -v re="^(${ALLOWED_TYPES_ALT})(\\([^()]+\\))?: .+" '
+    | awk -v types="$ALLOWED_TYPES_ALT" '
+      BEGIN{
+        # Match either: type(scope): ... OR type: ...
+        # Scope group must be optional.
+        re="^(" types ")(([(][^)]*[)]))?: .+";
+      }
       {
         line=$0
         if (line ~ /^$/) next
@@ -232,8 +242,27 @@ SUBJECT_CANDIDATE=$(
 # Strip common leading assistant phrases if they appear (defensive).
 SUBJECT_CANDIDATE=$(printf '%s' "$SUBJECT_CANDIDATE" | sed -E "s/^(I'll|I will|Sure,?|Here's|Proposed|Suggested)[: -]+//I")
 
-# Fallback if Copilot didn't provide a usable subject.
+# If Copilot didn't provide a usable subject, either:
+# - fail fast (default) so commit is blocked and user can regenerate/adjust
+# - or fall back to a heuristic subject (legacy behavior)
 if [ -z "${SUBJECT_CANDIDATE:-}" ]; then
+  if [ "$FAIL_ON_INVALID" = "1" ]; then
+    # Print diagnostics without leaking diffs (Copilot output only).
+    printf '%s\n' "prepare-commit-msg: ERROR: Copilot did not output a valid Conventional Commit subject." 1>&2
+    printf '%s\n' "prepare-commit-msg: Copilot output (first ${DUMP_INVALID_LINES} lines):" 1>&2
+    printf '%s\n' "$COPILOT_OUT" | sed -n "1,${DUMP_INVALID_LINES}p" | sed 's/^/  | /' 1>&2
+
+    # Write an explicit placeholder into the commit message so it's obvious if a user
+    # ends up in an editor (and so validation fails loudly).
+    {
+      printf '%s\n\n' "INVALID_COMMIT_MESSAGE: regenerate (copilot hook failed)"
+      printf '%s\n' "# Re-run commit, or set COPILOT_COMMITMSG_DEBUG=1 COPILOT_COMMITMSG_ECHO_IGNORED=1"
+      printf '%s\n' "# (Set COPILOT_COMMITMSG_FAIL_ON_INVALID=0 to allow heuristic fallback.)"
+    } > "$MSG_FILE"
+
+    exit 1
+  fi
+
   log "prepare-commit-msg: copilot did not yield a conventional subject; using fallback"
   if printf '%s\n' "$STAGED_FILES" | grep -Eq '(^|/)(README\.md|.*\.md)$'; then
     SUBJECT_CANDIDATE="docs: update documentation"
