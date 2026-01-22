@@ -1,0 +1,10 @@
+# SPDX-FileCopyrightText: Copyright © 2026 Caleb Cushing
+gradle/wrapper/*
+gradlew*
+.idea/
+build/
+node_modules/
+.gradle/
+
+# SPDX-License-Identifier: CC0-1.0
+#

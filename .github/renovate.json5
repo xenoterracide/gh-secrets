@@ -1,0 +1,57 @@
+// SPDX-FileCopyrightText: Copyright © 2026 Caleb Cushing
+//
+// SPDX-License-Identifier: CC0-1.0
+
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["config:recommended"],
+  dependencyDashboard: true,
+  timezone: "UTC",
+  automergeStrategy: "rebase",
+  hostRules: [
+    {
+      hostType: "maven",
+      matchHost: "https://maven.pkg.github.com",
+    },
+  ],
+  packageRules: [
+    {
+      schedule: ["* 3 * * *"],
+      matchManagers: ["pip-compile"],
+      managerFilePatterns: ["^pyproject\\.toml$"],
+    },
+    {
+      matchManagers: ["pip_requirements"],
+      enabled: false,
+    },
+    {
+      matchManagers: ["gradle", "gradle-wrapper"],
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      enabled: false,
+    },
+    {
+      schedule: ["* 4 * * *"],
+      matchManagers: ["gradle"],
+      matchUpdateTypes: ["major"],
+      automerge: false,
+    },
+    {
+      schedule: ["* 5 * * 3"],
+      matchManagers: ["gradle"],
+      matchFileNames: ["**/settings.gradle", "**/settings.gradle.kts"],
+      matchUpdateTypes: ["major", "minor", "patch"],
+      automerge: true,
+    },
+    {
+      matchManagers: ["github-actions"],
+      automerge: true,
+    },
+    {
+      schedule: ["* 4 * * 3"],
+      matchManagers: ["npm", "asdf"],
+      groupName: "devDependencies",
+      matchUpdateTypes: ["minor", "patch", "pin"],
+      automerge: true,
+    },
+  ],
+}
