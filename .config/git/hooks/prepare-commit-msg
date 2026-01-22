@@ -31,6 +31,7 @@ set -eu
 #
 # Tuning:
 # - Set COPILOT_COMMITMSG_MAX_BODY_LINES (default: 12) to cap message verbosity.
+# - Set COPILOT_COMMITMSG_INCLUDE_CONVENTION_CONFIG=0 to avoid including git-conventional-commits.yaml in the prompt.
 
 log() {
   [ -n "${COPILOT_COMMITMSG_DEBUG:-}" ] && printf '%s\n' "$*" 1>&2
@@ -86,6 +87,14 @@ STAGED_FILES=$(git diff --cached --name-only | head -n 200)
 STAGED_DIFF=$(git diff --cached | head -n 600)
 
 MAX_BODY_LINES="${COPILOT_COMMITMSG_MAX_BODY_LINES:-12}"
+INCLUDE_CONVENTION_CONFIG="${COPILOT_COMMITMSG_INCLUDE_CONVENTION_CONFIG:-1}"
+
+CONVENTION_CONFIG_SNIPPET=""
+if [ "$INCLUDE_CONVENTION_CONFIG" != "0" ] && [ -f "git-conventional-commits.yaml" ]; then
+  # Keep bounded: include only the first ~200 lines / 8KB.
+  # (This file is small, but we still cap to keep prompts predictable.)
+  CONVENTION_CONFIG_SNIPPET=$(sed -n '1,200p' git-conventional-commits.yaml | head -c 8192)
+fi
 
 PROMPT="You are writing a git commit message for a human developer.
 
@@ -107,7 +116,26 @@ Rules:
   - Do not repeat the subject.
 
 Available types: feat, fix, chore, docs, refactor, test, build, ci, style, perf
+"
 
+if [ -n "$CONVENTION_CONFIG_SNIPPET" ]; then
+  PROMPT="$PROMPT
+IMPORTANT: You MUST use ONLY commit types listed under convention.commitTypes in the config below.
+If unsure, choose 'chore'.
+
+Project commit convention (git-conventional-commits.yaml):
+---
+$CONVENTION_CONFIG_SNIPPET
+---
+"
+else
+  PROMPT="$PROMPT
+IMPORTANT: Use ONLY these commit types: ci, feat, fix, perf, refactor, style, test, build, ops, docs, chore, merge, revert
+If unsure, choose 'chore'.
+"
+fi
+
+PROMPT="$PROMPT
 Staged files:
 ${STAGED_FILES}
 
@@ -179,7 +207,7 @@ SUBJECT_CANDIDATE=$(
     | sed -E 's/^Subject:[[:space:]]*//I' \
     | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
     | awk '
-      BEGIN{ re="^(feat|fix|chore|docs|refactor|test|build|ci|style|perf)(\\([^()]+\\))?: .+"; }
+      BEGIN{ re="^(ci|feat|fix|perf|refactor|style|test|build|ops|docs|chore|merge|revert)(\\([^()]+\\))?: .+"; }
       {
         line=$0
         if (line ~ /^$/) next
