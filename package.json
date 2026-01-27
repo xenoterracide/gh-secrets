@@ -15,6 +15,7 @@
     "prettier-plugin-toml": "^2.0.6"
   },
   "scripts": {
+    "test": "./gradlew check",
     "merge": "gh pr create --fill-first; gh pr view && ./gradlew buildHealth build && gh run watch --exit-status && gh pr merge --squash --delete-branch --auto",
     "watch": "./gradlew testClasses --continuous",
     "dependencies:for": "./gradlew dependencies --configuration",
