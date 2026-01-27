@@ -23,3 +23,9 @@
 "(*.xml|*.yml|*.yaml|*ignore|*.properties|*.toml|*.json5|*.js|.editorconfig|.gitattributes|.mailmap|.envrc)":
   - "reuse annotate --license 'CC0-1.0' --copyright 'Caleb Cushing' --copyright-prefix spdx-string-symbol --merge-copyrights"
   - *prettier
+"*.json":
+  - "reuse annotate --license 'CC0-1.0' --copyright 'Caleb Cushing' --copyright-prefix spdx-string-symbol --merge-copyrights --force-dot-license"
+  - *prettier
+"package.json":
+  - "reuse annotate --license 'MIT' --copyright 'Caleb Cushing' --copyright-prefix spdx-string-symbol --merge-copyrights --force-dot-license"
+  - *prettier
